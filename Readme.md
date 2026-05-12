@@ -10,38 +10,19 @@
 
 #
 ## Table des matières
-
-  [Introduction](#introduction)
-  [Architecture](#arch1)
-  [Partie 1 : Préparation de l'architecture et Routage](#partie-1)
-  [1.1 Configuration des machines](#1.1-config-mach)
-  [1.2 Explication du routage:](#1.2--routage)
-  [1.3	Test des pings](#1.3-test-pings)
-  [Partie 2 : Mise en place d'OpenVPN](#Partie-2)
-  [2.1	Configuration VPN](#2.1-config-vpn)
-  [Partie 3 : Étude du routage global](#Partie-3)
- [3.1 Configuration du VPN pour tous les paquets sortant du C1](#3.1-config-vpn-c1)
- [3.2	Explication du Table de routage C1](#3.2-table-routage-c1)
- [Partie 4 : L'infrastructure DNS](#Partie-4)
- [4.1	Étape 1 : S3 en serveur DNS Cache (Bind9)](#Étape-1)
-[4.2	Étape 2 : Le Serveur DNS Interne (sur S5)](#Étape-2)
-[Étape 3 : Test de ssh de C1](#Étape-3)
-[Configuration finale du serveur VPN (S4)](#config-final-s4)
-[Test de résilience (Coupure de l'interface physique)](#test-de-résilience)
-[WireGuard](#wireguard)
-[Architecture](#architecture-1)
-[Q1](#q1.)
-[Configuration des machines](#config-machines)
-[Test de ping VPN](#test-de-ping-vpn:)
-[Q2](#q2)
-[Redirection du trafic (AllowedIPs \= 0.0.0.0/0)](#Redirection)
-[Q3](#q3)
-[Rétablissement du tunnel (Stateless vs Stateful)](#rétablissement)
-[Q4](#q4.)
-[Q5](#q5)
-[Comparaison des  fichiers de configurations finaux  des serveurs](#Comparaison-serveur)
-[Conclusion](#conclusion)
-[Ressources](#ressources)
+* [Introduction](#introduction)
+* [Architecture](#architecture)
+* [Partie 1 : Préparation de l'architecture et Routage](#partie-1--préparation-de-larchitecture-et-routage)
+  - [1.1 Configuration des machines](#11-configuration-des-machines)
+  - [1.2 Explication du routage](#12-explication-du-routage)
+  - [1.3 Test des pings](#13-test-des-pings)
+* [Partie 2 : Mise en place d'OpenVPN](#partie-2--mise-en-place-dopenvpn)
+  - [2.1 Configuration VPN](#21-configuration-vpn)
+* [Partie 3 : Étude du routage global](#partie-3--étude-du-routage-global)
+  - [3.1 Configuration du VPN pour tous les paquets sortant du C1](#31-configuration-du-vpn-pour-tous-les-paquets-sortant-du-c1)
+  - [3.2 Explication du Table de routage C1](#32-explication-du-table-de-routage-c1)
+* [Partie 4 : L'infrastructure DNS](#partie-4--linfrastructure-dns)
+  - 
 
 
 # 
@@ -61,15 +42,15 @@ Dans ce TP, nous allons plonger dans les coulisses de la sécurité réseau en c
 **L'objectif de cette étude est double :** déployer ces deux solutions de bout en bout pour connecter des réseaux distants, et observer par la pratique le "choc des générations". Nous verrons comment le monde des réseaux évolue d'une architecture lourde et complexe (OpenVPN) vers une simplicité absolue et redoutablement efficace (WireGuard).
 #
 
-# **Architecture**{#arch1}
+# **Architecture**
 ![alt text](image.png)
 
 Dans ce TP les machines utilisées sont des machines virtuelles Debian 12 sous VMWare.
 #
 
-# **Partie 1 : Préparation de l'architecture et Routage** {#partie-1}
+# **Partie 1 : Préparation de l'architecture et Routage** 
 
-## **1.1	Configuration des machines** {#1.1-config-mach}
+## **1.1	Configuration des machines** 
 
 **C1**  
 ![alt text](image-1.png)
@@ -85,7 +66,7 @@ Activation du routage: ***sudo sysctl \-w net.ipv4.ip\_forward=1***
 **S5**  
 ![alt text](image-4.png)
 
-## **1.2	Explication du routage:** {#1.2-routage}
+## **1.2	Explication du routage:** 
 
 * **S3 (192.168.10.3) :** Aucune route statique n'a été ajoutée. Sa route par défaut pointe vers la passerelle NAT de VMware pour avoir accès à Internet.  
     
@@ -96,7 +77,7 @@ Activation du routage: ***sudo sysctl \-w net.ipv4.ip\_forward=1***
 * **S5 (192.168.30.5) :** S5 est un serveur interne. Sa passerelle par défaut est S4 (192.168.30.4). Le ping de C1 vers S5 échoue car le réseau R-NAT (entre S3 et S4) ne connaît pas la route de retour vers le réseau R1 (192.168.10.0), et les paquets sont droppés.  
 * **Activation du routage des paquets sur S3 et S4**
   
-## **1.3	Test des pings** {#1.3-test-pings}
+## **1.3	Test des pings** 
 
 * ***ping S3/R1 depuis C1 est OK*** 
 ![alt text](image-5.png)
@@ -119,7 +100,7 @@ Activation du routage: ***sudo sysctl \-w net.ipv4.ip\_forward=1***
 
 # 
 
-# **Partie 2 : Mise en place d'OpenVPN**{#Partie-2} 
+# **Partie 2 : Mise en place d'OpenVPN**
 
 Dans cette partie les fichiers de configuration PKI ***(ca.crt, openVPN.crt, openVPN.key, dh.pem, ta.key***) d’OpenVPN ont été fournit donc on a pas besoin de générer de nouveau le certificat et le couple de clé privé et public:
 **Explication des fichier PKI d’OpenVPN:**
@@ -135,7 +116,7 @@ Dans cette partie les fichiers de configuration PKI ***(ca.crt, openVPN.crt, ope
 * **ta.key (Clé TLS-Auth / HMAC )**  
   * **Le rôle :** C'est le "videur à la porte". C'est une clé secrète identique partagée entre le client et le serveur (HMAC). Si le serveur reçoit une requête de connexion qui ne possède pas la signature mathématique de cette clé, il jette le paquet à la poubelle sans même essayer de le lire. Cela rend votre VPN invisible aux scanners de ports et le protège contre les attaques de type déni de service (DDoS).
 
-## **2.1	configuration VPN** {#2.1-config-vpn}
+## **2.1	configuration VPN** 
 * modification du fichier ***/etc/openvpn/server.conf***  sur S4**
 ![alt text](image-12.png) 
 
@@ -187,9 +168,9 @@ Pour éviter de configurer manuellement la route statique sur C1 à chaque nouve
 
 # 
 
-# **Partie 3 : Étude du routage global**{#Partie-3}
+# **Partie 3 : Étude du routage global**
 
-## **3.1	Configuration du VPN pour tous les paquet sortant du C1** {#3.1-config-vpn-c1}
+## **3.1	Configuration du VPN pour tous les paquet sortant du C1** 
 
 * Tous les paquets sortant de C1 (y compris vers Internet) devront être encapsulés et envoyés vers S4. S4 devra agir comme routeur NAT pour ce trafic virtuel vers Internet afin de garantir le chemin de retour, sinon les serveurs web sur Internet ne sauront pas comment répondre à l'IP privée du VPN 10.8.0.1
 ![alt text](image-25.png)
@@ -204,7 +185,7 @@ On voit que le ping ne passe pas, sans traduction d'adresse ip au niveau du S4 e
 ![alt text](image-28.png)  
 * On voit ainsi que le ping vers google passe bien par le server VPN (***10.8.0.6***)
   
-## **3.2	Explication du Table de routage C1** {#3.2-table-routage-c1}
+## **3.2	Explication du Table de routage C1** 
 ![alt text](image-29.png)
 **1\. Le détournement du trafic global (Les deux routes /1)**
 
@@ -238,8 +219,8 @@ On voit que le ping ne passe pas, sans traduction d'adresse ip au niveau du S4 e
   * **Explication :** Ces routes sont liées à l'architecture net30 d'OpenVPN. Elles indiquent comment joindre l'adresse du serveur VPN 10.8.0.1 en passant par le "peer" (le bout du tuyau) virtuel qui t'a été assigné, 10.8.0.5
   
 #
-# **Partie 4 : L'infrastructure DNS** {#Partie-4}
-## **4.1	Étape 1 : S3 en serveur DNS Cache (Bind9)**{#Étape-1}
+# **Partie 4 : L'infrastructure DNS** 
+## **4.1	Étape 1 : S3 en serveur DNS Cache (Bind9)**
 L'objectif ici est que S3 interroge Internet pour résoudre les noms publics (comme www.univ-evry.fr ) et garde les réponses en mémoire.
 
 **Sur S3 :**
@@ -253,7 +234,7 @@ L'objectif ici est que S3 interroge Internet pour résoudre les noms publics (co
    ![alt text](image-31.png)
    3. Récupération de l’IP: ***dig [www.univ-evry.fr](http://www.univ-evry.fr)![alt text](image-32.png)***
 
-## **4.2	Étape 2 : Le Serveur DNS Interne (sur S5)**{#Étape-2}
+## **4.2	Étape 2 : Le Serveur DNS Interne (sur S5)**
 
 Pour que S4 puisse répondre aux requêtes du S5, sans ajouter une route statique sur S3. Nous sommes obligés d’ajouter une règle nat sur S4 afin de masquer l’ip de S5: ***ip saddr 192.168.30.0/24 oifname ens33 masquerade:*** Cette règle permet à  S4 remplace l'IP source 192.168.30.5 par sa propre IP 192.168.80.238.   
 S3 reçoit une requête venant de 192.168.80.238 (qu'il sache comment joindre puisqu'ils sont sur le même réseau R-NAT) et pourra répondre.
@@ -264,7 +245,7 @@ S3 reçoit une requête venant de 192.168.80.238 (qu'il sache comment joindre pu
 3. Déclare la zone interne dans ***/etc/bind/named.conf.local![alt text](image-34.png)***  
 4. Créons le fichier de zone ***/etc/bind/db.interne.tp.org*** (C'est ici qu'on associe les noms aux IPs ) :![alt text](image-35.png)![alt text](image-36.png)
 #
-## **4.3	Étape 3 : Test de ssh de C1** {#Étape-3}
+## **4.3	Étape 3 : Test de ssh de C1** 
 * **Test depuis C1 :** ***ssh debian[@s5.interne.tp.org](mailto:utilisateur@s5.interne.tp.org)***  
   * **Arrivez-vous à vous connecter ?** **Non \!**![alt text](image-37.png)
 * **Pourquoi ?**    
@@ -279,10 +260,10 @@ S3 reçoit une requête venant de 192.168.80.238 (qu'il sache comment joindre pu
   * Puis on refait le ***ssh debian[@s5.interne.tp.org](mailto:utilisateur@s5.interne.tp.org)***  
   ![alt text](image-38.png)![alt text](image-39.png)
 #
-# **Configuration finale du serveur VPN (S4)**{#config-final-s4}
+# **Configuration finale du serveur VPN (S4)**
 ![alt text](image-40.png)
 #
-# **Test de résilience (Coupure de l'interface physique) :**  {#test-de-résilience}
+# **Test de résilience (Coupure de l'interface physique) :**
 
 * Lancement d'un ping continu depuis C1 vers le réseau distant.  
 * Désactivation manuelle de l'interface physique du client (***sudo ip link set ens33 down***).  
@@ -302,12 +283,12 @@ Contrairement aux attentes, le trafic ne reprend pas automatiquement après la r
 3. **Absence de reconnexion dynamique (sans options spécifiques) :** Lorsque l'interface ens33 revient, OpenVPN ne détecte pas dynamiquement ce changement d'état matériel pour relancer son processus de poignée de main (handshake) à partir de zéro. Le processus devient "zombie", attendant sur une interface virtuelle tun0 dont les routes sous-jacentes sont obsolètes.
 
 #
-# **WireGuard** {#wireguard}
+# **WireGuard** 
 
-## **Architecture** {#architecture-1}
+## **Architecture**
 ![alt text](image-43.png)
 
-## **Q1**.  {#q1.}
+## **Q1**.
 ***Combien de fichiers ont été nécessaires ? Comparez avec la PKI d’OpenVPN***
 
 * **Nombre de fichiers nécessaires avec WireGuard**  
@@ -326,7 +307,7 @@ Contrairement aux attentes, le trafic ne reprend pas automatiquement après la r
     * Les paramètres Diffie-Hellman (***dh.pem***) pour l'échange sécurisé.  
     * La clé de signature HMAC (***ta.key***) pour se protéger des scans.
 
-### **Configuration des machines:**{#config-machines} 
+### **Configuration des machines:**
 **C1 *(ip a et ip route***)
 ![alt text](image-47.png)
 **C1** (config VPN ***/etc/wireguard/wg0.conf)***  
@@ -336,7 +317,7 @@ Contrairement aux attentes, le trafic ne reprend pas automatiquement après la r
 **S1** (config VPN  ***/etc/wireguard/wg0.conf***)  
 ![alt text](image-51.png)Puis on démarre le tunnelle des deux côtés: **sudo wg-quick up wg0** 
 
-### **Test de ping VPN:** {#test-de-ping-vpn:}
+### **Test de ping VPN:** 
 ![alt text](image-52.png)
 ![alt text](image-53.png)
 ![alt text](image-54.png)
@@ -345,11 +326,11 @@ Contrairement aux attentes, le trafic ne reprend pas automatiquement après la r
 * Sur l'interface virtuelle **wg0**, nous observons le trafic "utile" en clair (les requêtes et réponses ICMP entre les adresses IP du tunnel 10.10.0.2 et 10.10.0.1).  
 * Sur l'interface physique **ens33**, ce trafic ICMP n'est plus visible. Nous n'observons plus que des trames UDP (Port 51820\) circulant entre les adresses IP physiques des machines. Le paquet ICMP d'origine a été chiffré et encapsulé par WireGuard pour former le "Transport Data". Cela prouve que le tunnel sécurise efficacement les données et masque la nature du trafic interne vis-à-vis du réseau physique.
 
-## **Q2**.{#q2}
+## **Q2**.
 
 ***Modifiez AllowedIPs côté client à 0.0.0.0/0. Que se passe-t-il ? Quel est l’équivalent de la directive redirect-gateway d’OpenVPN ?***  
 
-### **Redirection du trafic (AllowedIPs \= 0.0.0.0/0)**{#Redirection}
+### **Redirection du trafic (AllowedIPs \= 0.0.0.0/0)**
 * **Que se passe-t-il ?** En modifiant AllowedIPs à 0.0.0.0/0 (qui représente l'intégralité de l'espace d'adressage IPv4), on indique à WireGuard d'acheminer **absolument tout le trafic sortant** de la machine client vers le tunnel VPN. L'outil ***wg-quick*** va automatiquement modifier la table de routage du client pour que la route par défaut pointe vers l'interface wg0.  
 * **L'équivalent OpenVPN :** C'est l'équivalent direct de la directive **redirect-gateway def1** que nous avons étudiée dans la partie 3 du TP.
 
@@ -363,7 +344,7 @@ On voit bien que le trafic vers internet passe par le Wireguard
 ![alt text](image-57.png)
 ##
 
-## **Q3.**{#q3}
+## **Q3.**
 ***Désactivez l’interface physique du client (sudo ip link set ens33 down), puis réactivez-la. Le tunnel se rétablit-il automatiquement ? Comparez avec le comportement d’OpenVPN***  
 ![alt text](image-58.png)
 **Observation:** 
@@ -373,7 +354,7 @@ On voit bien que le trafic vers internet passe par le Wireguard
 
 **Explication:**
 
-### **Rétablissement du tunnel (Stateless vs Stateful)** {#rétablissement}
+### **Rétablissement du tunnel (Stateless vs Stateful)**
 
 * **Le tunnel se rétablit-il automatiquement ?** **Oui, de manière instantanée et transparente.** Dès que l'interface physique ens33 remonte, les paquets recommencent à circuler comme si de rien n'était.  
 * **Comparaison avec OpenVPN:**  
@@ -382,7 +363,7 @@ On voit bien que le trafic vers internet passe par le Wireguard
 
 ##
 
-## **Q4.**  {#q4.}
+## **Q4.**
 
 ***Depuis une machine non configurée comme peer, scannez le port 51820 du serveur avec nmap. Le serveur répond-il ? Expliquez le principe de stealth de WireGuard.***  
 ![alt text](image-59.png)
@@ -391,7 +372,7 @@ On voit bien que le trafic vers internet passe par le Wireguard
   
 ##
 
-## **Q5.**{#q5}
+## **Q5.**
 ***Comparez le temps de mise en place du tunnel WireGuard vs OpenVPN. Pourquoi WireGuard est-il plus rapide à établir la connexion ?***  
 **Comparaison du temps :** La mise en place d'un tunnel WireGuard est quasi-instantanée (quelques millisecondes), contre plusieurs secondes pour OpenVPN.  
 **Pourquoi WireGuard est-il plus rapide ?** Il y a deux raisons principales :
@@ -399,7 +380,7 @@ On voit bien que le trafic vers internet passe par le Wireguard
 2. **Handshake en 1-RTT (Round Trip Time) :** La poignée de main cryptographique de WireGuard est extrêmement optimisée. Il suffit d'un seul aller-retour réseau pour que le client et le serveur soient d'accord sur la clé de session et commencent à transmettre des données utiles. L'échange TLS d'OpenVPN nécessite de multiples allers-retours avant que le premier paquet utile ne puisse passer.
 
 #
-# **Comparaison des  fichiers de configuration finaux  des serveurs:**{#Comparaison-serveur}
+# **Comparaison des  fichiers de configuration finaux  des serveurs:**
 **OpenVPN:**  
 ![alt text](image-60.png)
 **Wireguard**  
@@ -420,7 +401,7 @@ Ce projet nous a permis de construire et de sécuriser notre propre infrastructu
 Aujourd'hui, OpenVPN reste indispensable car il est installé partout et s'adapte à tous les environnements d'entreprise (même les plus anciens). Cependant, WireGuard représente sans conteste l'avenir du VPN : en éliminant la complexité, il réduit les risques de failles humaines, offre des performances inégalées et rend l'administration réseau infiniment plus agréable. Ce TP démontre parfaitement qu'en informatique, la sécurité maximale se trouve souvent dans la simplicité absolue.
 
 # 
-# **Ressources** {#ressources}
+# **Ressources** 
 
 **Configuration OpenVPN**
 
